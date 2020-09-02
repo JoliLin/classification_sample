@@ -39,6 +39,7 @@ class rt:
         return list(x)
   
     def simple_data(self):
+        wv = []
         x, y = load_data(self.data)
 
         train_x, test_x, train_y, test_y = train_test_split(x, y, test_size=0.1)
@@ -55,20 +56,24 @@ class rt:
         return (train_x, torch.LongTensor(train_y)), (dev_x, torch.LongTensor(dev_y)), (test_x, torch.LongTensor(test_y))
     
 if __name__ == '__main__':
-    rt = rt()
-    training, valid, testing = rt.simple_data()
-    train_loader = trainer.load_data(training)
-    valid_loader = trainer.load_data(valid)
-    test_loader = trainer.load_data(testing)
-    
+    handler = trainer.handler()
+
+    training, valid, testing = rt().simple_data()
+    train_loader = handler.torch_data(training)
+    valid_loader = handler.torch_data(valid)
+    test_loader = handler.torch_data(testing)
+   
     import model
-    trial = 1
+    trial = handler.trial
     scores = []
     for i in range(trial):
         model_ = model.EmbCNN(dim=300)
-        p = trainer.handler(model_, train_loader, valid_loader, test_loader)
-        score = p.fit('model_'+str(i)+'.pt')
-
+        model_name = 'model_'+str(i)+'.pt'
+        handler.setting(model_, model_name=model_name)
+        handler.fit(train_loader, valid_loader)
+        y_pred = handler.predict(model_, test_loader, handler.save+model_name)
+        score = handler.eval(testing[1], y_pred)
+        
         scores.append(score)
         print(scores)
     print(sum(scores)/trial)

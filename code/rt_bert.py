@@ -26,7 +26,7 @@ class rt:
         np.random.seed(1)
         np.random.shuffle(data)
 
-        self.seq_len = 512
+        self.seq_len = 300
         self.data = data
 
         #self.weight = 'distilbert-base-cased'
@@ -35,9 +35,12 @@ class rt:
         self.tokenizer = BertTokenizer.from_pretrained(self.weight)
 
     def process(self, x):
-        x = [self.tokenizer.encode(i, add_special_tokens=True, padding='max_length', truncation=True) for i in x]
+        x_ = [self.tokenizer.encode(i, add_special_tokens=True, max_length=300, padding='max_length', truncation=True) for i in x]
+        #x_ = []
+        #for i in x:
+        #    x_.append(self.tokenizer.encode(i, add_special_tokens=True, max_length=512, padding='max_length'))
 
-        return x
+        return x_
 
     def simple_data(self):
         x, y = load_data(self.data)
@@ -57,19 +60,30 @@ class rt:
 
 if __name__ == '__main__':
     rt = rt()
-    training, valid, testing = rt.simple_data()
-    train_loader = trainer.load_data(training)
-    valid_loader = trainer.load_data(valid)
-    test_loader = trainer.load_data(testing)
+    handler = trainer.handler()
     
+    #data preprocess
+    training, valid, testing = rt.simple_data()
+    train_loader = handler.torch_data(training)
+    valid_loader = handler.torch_data(valid)
+    test_loader = handler.torch_data(testing)
+   
     import model
-    trial = 10
+    trial = handler.trial
     scores = []
     for i in range(trial):
-        model_ = model.BertCls( BertModel,rt.weight )
-        p = trainer.handler(model_, train_loader, valid_loader, test_loader)
-        score = p.fit('model_'+str(i)+'.pt')
-
+        #setting
+        model_ = model.BertCls( BertModel, rt.weight, handler.trainable )
+        model_name = 'model_'+str(i)+'.pt'
+        model_path = handler.save+model_name
+        handler.setting(model_, model_name=model_name)
+        #training
+        handler.fit(train_loader, valid_loader)
+        #predict
+        y_pred = handler.predict(model_, test_loader, model_path)
+        #evaluation
+        score = handler.eval(testing[1], y_pred)
+        
         scores.append(score)
         print(scores)
     print(sum(scores)/trial)

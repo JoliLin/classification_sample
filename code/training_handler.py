@@ -1,14 +1,13 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data as Data
+import time
 from torch.utils.data.dataset import Dataset
 from torch.autograd import Variable
 
-import args
-import numpy as np
-import os 
-import time
+from args import hyperparameter
 
 #data 4 collabrative filtering
 class CFDataset(Dataset):
@@ -53,9 +52,6 @@ class CustomDataset(Dataset):
     def __len__(self):
         return self.len
 
-def load_data( data, batch_size=64, dataset=CustomDataset ):
-    return Data.DataLoader( dataset=dataset(*data), batch_size=batch_size )
-
 #early stopping
 class EarlyStopping:
     def __init__(self, patience=7, verbose=False):
@@ -84,36 +80,20 @@ class EarlyStopping:
         torch.save(model.state_dict(), model_name)
         self.val_loss_min = val_loss
 
-#training processes
-class handler:
-    def __init__(self, model_, train_loader, valid_loader, test_loader):
-        arg = args.process_command()	    
-
-        self.gpu = arg.gpu
-        self.epoch_size = arg.epoch
-        self.batch_size = arg.batch
-        self.device = self.device_setting( self.gpu )
-        self.save = arg.save
-        
-        self.model_ = model_
-        self.train_loader = train_loader
-        self.valid_loader = valid_loader
-        self.test_loader = test_loader
-
+#training process
+class handler(hyperparameter):
+    def __init__(self):
+        super().__init__()
         self.hist = dict()
+   
+    def setting(self, model, model_name):
+        self.model_ = model
+        self.model_name = model_name
+    
+    def torch_data(self, data, dataset=CustomDataset ):
+        return Data.DataLoader( dataset=dataset(*data), batch_size=self.batch_size )
 
-        self.create_saving_dir(self.save)
-
-    def create_saving_dir( self, save ):
-        try:
-            os.mkdir(save)
-        except FileExistsError:
-            print('Dir : {} existed.'.format(save))
-
-    def device_setting( self, gpu=1 ):
-        return 'cpu' if gpu == -1 else 'cuda:{}'.format(gpu)
-
-    def print_hist( self ):
+    def print_hist(self):
         string = '> '
 
         for k in self.hist.keys():
@@ -124,24 +104,21 @@ class handler:
             else:
                 string += '{}:{}\t'.format(k,val)
         print(string)	
-		
+    
     def updateBN(self, s):
         for m in model_.modules():
             if isinstance(m, nn,LayerNorm):
                 m.weight.grad.data.add_(s*torch.sign(m.weight.data))
     
-    def train( self, model_, train_loader, valid_loader, model_name='checkpoint.pt' ):
-        es = EarlyStopping(patience=10, verbose=True)
+    def fit( self, train_loader, valid_loader ):
+        model_ = self.model_ 
+        #print(model_)
+        total = sum(p.numel() for p in self.model_.parameters() if p.requires_grad)
+        print('# of para: {}'.format(total))	
 
-        #optimizer = Lamb(model_.parameters())
-        optimizer = torch.optim.AdamW(model_.parameters())
-        
-        #DistilBert
-        #optimizer = torch.optim.Adam([{'params':model_.pretrained.transformer.layer[-1].parameters(), 'lr': 5e-5},{'params':model_.decoder.parameters(), 'lr':3e-4}])
-        #optimizer = torch.optim.SGD(model_.parameters(), lr=3e-4, momentum=0.9)	
-        
-        #Bert
-        #optimizer = torch.optim.Adam([{'params':model_.pretrained.encoder.layer[-1].parameters(), 'lr': 5e-5},{'params':model_.pretrained.encoder.layer[-2].parameters(), 'lr': 5e-5}, {'params':model_.pretrained.encoder.layer[-3].parameters(), 'lr': 5e-5}, {'params':model_.pretrained.encoder.layer[-4].parameters(), 'lr': 5e-5}, {'params':model_.decoder.parameters(), 'lr':3e-4}])
+        es = EarlyStopping(patience=self.patience, verbose=True)
+
+        optimizer = torch.optim.Adam(model_.parameters(), lr=self.lr)
 
         model_.to(self.device)
 
@@ -160,26 +137,25 @@ class handler:
                 data_ = [_.to(self.device) for _ in data_]
                 optimizer.zero_grad()
                 y_pred, loss = model_(data_, mode='train')
-				
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model_.parameters(), 5)
-	
                 train_loss += loss.item()*len(data_[0])
                 train_acc += self.accuracy( y_pred, data_[1] ).item()*len(data_[0])
-                optimizer.step()
                 N_train += len(data_[0])
+	
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model_.parameters(), 1)
+                optimizer.step()
 
             self.hist['Epoch'] = epoch+1
             self.hist['time'] = time.time()-start
             self.hist['train_loss'] = train_loss/N_train	
             #self.hist['train_acc'] = train_acc/N_train
 
-            torch.save(model_.state_dict(), model_name)
+            torch.save(model_.state_dict(), self.save+self.model_name)
 			
             if valid_loader != None:
-                valid_true, valid_pred, valid_loss = self.test(model_, valid_loader, mode='valid', model_name=model_name)
+                valid_true, valid_pred, valid_loss = self.test(model_, valid_loader, mode='valid', model_name=self.save+self.model_name)
 
-                es(valid_loss, model_, model_name)
+                es(valid_loss, model_, self.save+self.model_name)
 				
             self.print_hist()
 
@@ -212,9 +188,9 @@ class handler:
 		
         return y_true , y_pred, test_loss/N_test
 
-    def predict( self, model_, test_loader, model_name='checkpoint.pt' ):
+    def predict( self, model_, test_loader, model_path='checkpoint.pt' ):
         model_.to(self.device)
-        model_.load_state_dict(torch.load(model_name))
+        model_.load_state_dict(torch.load(model_path))
         model_.eval()
 
         y_pred = []
@@ -225,28 +201,13 @@ class handler:
                 y_pred.extend(logit.detach().cpu())
 
         return y_pred
-
-    def fit(self, model_name='MLP.pt'):
-        #print(model_)
-        total = sum(p.numel() for p in self.model_.parameters() if p.requires_grad)
-        print('# of para: {}'.format(total))	
-
-        ### train & test
-        self.train( self.model_, self.train_loader, self.valid_loader, self.save+model_name )
-        y_true, y_pred, avg_loss = self.test( self.model_, self.test_loader, model_name=self.save+model_name )
+            
+    def eval(self, y_true, y_pred):
         hit = 0
-        for a, b in zip([i.detach().cpu() for i in y_true], [i.detach().cpu() for i in y_pred]):
+        for a, b in zip([i.detach().cpu() for i in y_true], y_pred):
             if a == np.argmax(np.array(b)):
                 hit+=1
         return hit/len(y_true)
-
-    def inference(self, model_name='MLP.pt'):
-        #print(model_)
-        total = sum(p.numel() for p in self.model_.parameters() if p.requires_grad)
-        print('# of para: {}'.format(total))	
-        
-        predicted = self.predict(self.model_, self.test_loader, model_name)
-        print([np.argmax(np.array(i)) for i in predicted])
 
     def accuracy( self, y_pred, y_true ):
         return (np.array(list(map(np.argmax, y_pred.detach().cpu()))) == np.array(y_true.cpu())).sum()/len(y_pred)
