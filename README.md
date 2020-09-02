@@ -15,6 +15,12 @@ Requirement
 + transformers
 + sklearn
 
+Recommended setting and command
+----
+```
+python rt_bert.py --lr 2e-5 -trainable 9
+```
+
 Notice
 ----
 If run
