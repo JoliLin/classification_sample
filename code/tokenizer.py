@@ -7,25 +7,19 @@ def _is_punctuation(char):
         return True
 
     cat = unicodedata.category(char)
-    if cat.startswith('P'):
-        return True
-    return False
-    
+    return cat.startswith('P')
+
 def _is_control(char):
     if char == '\t' or char == '\n' or char == '\r':
         return False
     cat = unicodedata.category(char)
-    if cat.startswith('C'):
-        return True
-    return False
+    return cat.startswith('C')
 
 def _is_whitespace(char):
     if char == ' ' or char == '\t' or char == '\n' or char == '\r':
         return True
     cat = unicodedata.category(char)
-    if cat == 'Zs':
-        return True
-    return False
+    return cat == 'Zs'
 
 def _run_strip_accents(text):
     text = unicodedata.normalize('NFD', text)
