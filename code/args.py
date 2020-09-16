@@ -1,8 +1,6 @@
 import argparse
 import os 
 
-checkpath = lambda a: a if a.endswith('/') else a+'/'
-
 class hyperparameter:
     def __init__(self):
         self.parser = self.process_command()
@@ -17,8 +15,7 @@ class hyperparameter:
 
         ###Experiment
         self.trial = self.parser.trial
-        self.save = checkpath(self.parser.save)
-        self.create_saving_dir(self.save)
+        self.save = self.create_saving_dir(self.parser.save)
 
         ###BERT 
         self.trainable = self.parser.trainable
@@ -35,7 +32,7 @@ class hyperparameter:
         parser.add_argument('--trial', '-t', default=1, help='times of trial', type=int)	
         parser.add_argument('--save', '-s', default='./__model__/', help='path of saving model')
 
-        parser.add_argument('--trainable', '-trainable', default=3, help='number of BERT trainable layers', type=int)	
+        parser.add_argument('--trainable', '-trainable', default=9, help='number of BERT trainable layers', type=int)	
 
         return parser.parse_args()
 
@@ -43,8 +40,10 @@ class hyperparameter:
         return 'cpu' if gpu == -1 else 'cuda:{}'.format(gpu)
 
     def create_saving_dir(self, save):
+        if not save.endswith('/'):
+            save = save + '/'
         try:
             os.mkdir(save)
         except FileExistsError:
             print(f'Dir : {save} existed.')
-
+        return save
