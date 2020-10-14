@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+    
 import copy
 import math
 import os
@@ -21,10 +21,11 @@ import tarfile
 #import tempfile
 #import shutil
 #from urllib.parse import urlparse
-from file_utils import cached_path
+from .file_utils import cached_path
 
 import torch
 from torch import nn
+from .bert_util import find_pruneable_heads_and_indices, prune_linear_layer
 
 def create_saving_dir(save):
     if not save.endswith('/'):
@@ -35,7 +36,7 @@ def create_saving_dir(save):
         print(f'Dir : {save} existed.')
 
 class BertConfig(object):
-    def __init__(self, vocab_size, hidden_size=768, num_hidden_layers=12, num_attention_heads=12, intermediate_size=3072, hidden_act="gelu", hidden_dropout_prob=0.1, attention_probs_dropout_prob=0.1, max_position_embeddings=512, type_vocab_size=16, initializer_range=0.02, extra_dim=None, hidden_size_aug=204):
+    def __init__(self, vocab_size, hidden_size=768, num_hidden_layers=12, num_attention_heads=12, intermediate_size=3072, hidden_act="gelu", hidden_dropout_prob=0.1, attention_probs_dropout_prob=0.1, max_position_embeddings=512, type_vocab_size=16, initializer_range=0.02, extra_dim=None, hidden_size_aug=204, adapter_size=64, trainable_layer=3):
         self.vocab_size = vocab_size
         self.hidden_size = hidden_size
         self.num_hidden_layers = num_hidden_layers
@@ -45,6 +46,8 @@ class BertConfig(object):
         self.hidden_dropout_prob = hidden_dropout_prob
         self.attention_probs_dropout_prob = attention_probs_dropout_prob
         self.max_position_embeddings = max_position_embeddings
+        self.adapter_size = adapter_size
+        self.trainable_layer = trainable_layer
 
     @classmethod
     def from_dict(cls, json_object):
@@ -95,7 +98,7 @@ class PreTrainedBertModel(nn.Module):
         try:
             resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
         except FileNotFoundError:
-            print(f'{PRETRAINED_MODEL_ARCHIVE_MAP.keys()}')
+            print('FileNotFound')
 
             return None
         #print(resolved_archive_file)
@@ -112,9 +115,10 @@ class PreTrainedBertModel(nn.Module):
             #tempdir = tempfile.mkdtemp()
             create_saving_dir('../'+pretrained_model_name) 
             with tarfile.open(resolved_archive_file, 'r:gz') as archive:
-                archive.extractall(pretrained_model_name)
+                archive.extractall('../'+pretrained_model_name)
             serialization_dir = '../'+pretrained_model_name
-
+        
+        print(serialization_dir)
         config_file = os.path.join(serialization_dir, 'bert_config.json')
         config = BertConfig.from_json_file(config_file)
         model = cls(config, *inputs, **kwargs)
@@ -132,12 +136,12 @@ class PreTrainedBertModel(nn.Module):
         def load(module, prefix=''):
             local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
             module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
+            #print(unexpected_keys)
 
             for name, child in module._modules.items():
                 if child is not None:
                     load(child, prefix+name+'.')
         load(model, prefix='' if hasattr(model, 'bert') else 'bert.')
-       
         '''
         if tempdir:
             shutil.rmtree(tempdir)
@@ -196,11 +200,12 @@ class BertEmbeddings(nn.Module):
         return embeddings
 
 class BertLayer(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, layer_num):
         super(BertLayer, self).__init__()
-        self.attention = BertAttention(config)
+        self.attention = BertAttention(config, layer_num)
         self.intermediate = BertIntermediate(config)
-        self.output = BertOutput(config)
+        self.output = BertOutput(config, layer_num)
+        
 
     def forward(self, hidden_states, attention_mask, attention_show_flg=False):
         if attention_show_flg == True:
@@ -216,10 +221,10 @@ class BertLayer(nn.Module):
             return layer_output
 
 class BertAttention(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, layer_num):
         super(BertAttention, self).__init__()
         self.self = BertSelfAttention(config)
-        self.output = BertSelfOutput(config)
+        self.output = BertSelfOutput(config, layer_num)
 
     def forward(self, input_tensor, attention_mask, attention_show_flg=False):
         if attention_show_flg == True:
@@ -279,27 +284,46 @@ class BertSelfAttention(nn.Module):
         elif attention_show_flg == False:
             return context_layer
 
+class Adapter(nn.Module):
+    def __init__(self, hidden_size, adapter_size):
+        super(Adapter, self).__init__()
+        self.encoder = nn.Linear(hidden_size, adapter_size)
+        self.decoder = nn.Linear(adapter_size, hidden_size)
+
+    def forward(self, hidden_states):
+        adapter_hidden_states = self.encoder(hidden_states)
+        adapter_hidden_states = gelu(adapter_hidden_states)
+        adapter_hidden_states = self.decoder(adapter_hidden_states)
+        return adapter_hidden_states + hidden_states
+
 class BertSelfOutput(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, layer_num):
         super(BertSelfOutput, self).__init__()
 
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        ###
+        self.adapter = Adapter(hidden_size=config.hidden_size, adapter_size=config.adapter_size)
+        ###
+        self.layer_num = layer_num
+        self.trainable_layer = config.trainable_layer
 
     def forward(self, hidden_states, input_tensor):
         hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
+        if self.layer_num > self.trainable_layer:
+            hidden_states = self.adapter(hidden_states)
         hidden_states = self.LayerNorm(hidden_states+input_tensor)
-        return hidden_states
-
+        return hidden_states 
+   
 def gelu(x):
     """Implementation of the gelu activation function.
         For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
         0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
     """
-    #return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
-    return 0.5 * x * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))))
+    return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
+    #return 0.5 * x * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))))
 
 
 class BertIntermediate(nn.Module):
@@ -314,25 +338,36 @@ class BertIntermediate(nn.Module):
         return hidden_states
 
 class BertOutput(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, layer_num):
         super(BertOutput, self).__init__()
         self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-    
+        ###
+        self.adapter = Adapter(hidden_size=config.hidden_size, adapter_size=config.adapter_size)
+        ###
+        self.layer_num = layer_num
+        self.trainable_layer = config.trainable_layer
+
     def forward(self, hidden_states, input_tensor):
         hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
+        ###
+        if self.layer_num > self.trainable_layer:
+            hidden_states = self.adapter(hidden_states)
+        ###
         hidden_states = self.LayerNorm(hidden_states+input_tensor)
         return hidden_states
+
+from torch.distributions.bernoulli import Bernoulli
 
 class BertEncoder(nn.Module):
     def __init__(self, config):
         super(BertEncoder, self).__init__()
-        layer = BertLayer(config)
-        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.num_hidden_layers)])
-    
+        self.layer = nn.ModuleList([BertLayer(config, _) for _ in range(config.num_hidden_layers)])
+        
     def forward(self, hidden_states, attention_mask, output_all_encoded_layers=True, attention_show_flg=False):
+                
         all_encoder_layers = []
         for layer_module in self.layer:
             if attention_show_flg == True:

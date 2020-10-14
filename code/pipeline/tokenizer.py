@@ -264,12 +264,11 @@ class WordpieceTokenizer(object):
             else:
                 output_tokens.extend(sub_tokens)
         return output_tokens
-
 '''
 tokenizer = FullTokenizer('/home/joli/bert_base/vocab.txt')
-a = ['[CLS]']+ (tokenizer.tokenize('today is tuesday')) + ['[SEP]']
+a = ['[CLS]']+ (tokenizer.tokenize('I have been running')) + ['[SEP]']
 b = (tokenizer.tokenize('習近平小熊維尼'))
 
-print(b)
-print(tokenizer.convert_tokens_to_ids(b))
+print(a)
+print(tokenizer.convert_tokens_to_ids(a))
 '''

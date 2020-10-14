@@ -1,12 +1,11 @@
-import language_model as LM
 import nltk
 import numpy as np
-import training_handler as trainer
 import torch
-import tokenizer
-from tokenizer import FullTokenizer
-from transformers import DistilBertTokenizer, DistilBertModel, BertTokenizer, BertModel
+from transformers import BertTokenizer#, BertModel
 from sklearn.model_selection import train_test_split
+from pipeline.BertAdapter import BertModel
+from pipeline.training_handler import handler
+from pipeline.tokenizer import FullTokenizer
 
 def load_data( lst ):
     x, y = [], []
@@ -29,16 +28,11 @@ class rt:
         self.seq_len = 300
         self.data = data
 
-        #self.weight = 'distilbert-base-cased'
-        #self.tokenizer = DistilBertTokenizer.from_pretrained(self.weight)
-        self.weight = 'bert-base-uncased'
+        self.weight = 'bert-base-cased'
         self.tokenizer = BertTokenizer.from_pretrained(self.weight)
 
     def process(self, x):
         x_ = [self.tokenizer.encode(i, add_special_tokens=True, max_length=300, padding='max_length', truncation=True) for i in x]
-        #x_ = []
-        #for i in x:
-        #    x_.append(self.tokenizer.encode(i, add_special_tokens=True, max_length=512, padding='max_length'))
 
         return x_
 
@@ -60,7 +54,7 @@ class rt:
 
 if __name__ == '__main__':
     rt = rt()
-    handler = trainer.handler()
+    handler = handler()
     
     #data preprocess
     training, valid, testing = rt.simple_data()
@@ -68,12 +62,14 @@ if __name__ == '__main__':
     valid_loader = handler.torch_data(valid)
     test_loader = handler.torch_data(testing)
    
-    import model
+    from pipeline import model
     trial = handler.trial
     scores = []
     for i in range(trial):
         #setting
-        model_ = model.BertCls( BertModel, rt.weight, handler.trainable )
+        #model_ = model.BertCls( BertModel, rt.weight, handler.trainable )
+        model_ = model.CustomBertCls( BertModel, rt.weight, handler.trainable )
+
         model_name = 'model_'+str(i)+'.pt'
         model_path = handler.save+model_name
         handler.setting(model_, model_name=model_name)

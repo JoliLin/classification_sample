@@ -7,7 +7,9 @@ import time
 from torch.utils.data.dataset import Dataset
 from torch.autograd import Variable
 
-from args import hyperparameter
+from .args import hyperparameter
+#from replacement_scheduler import ConstantReplacementScheduler
+from transformers import get_linear_schedule_with_warmup
 
 #data 4 collabrative filtering
 class CFDataset(Dataset):
@@ -93,6 +95,13 @@ class handler(hyperparameter):
     def torch_data(self, data, dataset=CustomDataset ):
         return Data.DataLoader( dataset=dataset(*data), batch_size=self.batch_size )
 
+    def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, last_epoch=-1):
+        def lr_lambda(current_step):
+            if current_step < num_warmup_steps:
+                return float(current_step) / float(max(1.0, num_warmup_steps))
+            return max(0.0, float(num_training_steps-current_step)/float(max(1, num_training_steps-num_warmup_steps)))
+        return LambdaLR(optimizer, lr_lambda, last_epoch=last_epoch)
+
     def print_hist(self):
         string = '> '
 
@@ -110,7 +119,7 @@ class handler(hyperparameter):
             if isinstance(m, nn,LayerNorm):
                 m.weight.grad.data.add_(s*torch.sign(m.weight.data))
     
-    def fit( self, train_loader, valid_loader ):
+    def fit( self, train_loader, valid_loader=None, test_loader=None):
         model_ = self.model_ 
         #print(model_)
         total = sum(p.numel() for p in self.model_.parameters() if p.requires_grad)
@@ -118,13 +127,15 @@ class handler(hyperparameter):
 
         es = EarlyStopping(patience=self.patience, verbose=True)
 
-        optimizer = torch.optim.Adam(model_.parameters(), lr=self.lr)
-
+        optimizer = torch.optim.AdamW(model_.parameters(), lr=self.lr*self.accumulative, weight_decay=0.01)
+        scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=(len(train_loader)//1*self.epoch_size))
+        #lr_schedule = 
         model_.to(self.device)
 
         start = time.time()
         best_model = None
-	
+        optimizer.zero_grad()
+
         for epoch in range(self.epoch_size):
             start = time.time()
 		
@@ -135,20 +146,36 @@ class handler(hyperparameter):
 
             for i, data_ in enumerate(train_loader):
                 data_ = [_.to(self.device) for _ in data_]
-                optimizer.zero_grad()
+                #optimizer.zero_grad()
                 y_pred, loss = model_(data_, mode='train')
+                loss = loss / self.accumulative
                 train_loss += loss.item()*len(data_[0])
                 train_acc += self.accuracy( y_pred, data_[1] ).item()*len(data_[0])
                 N_train += len(data_[0])
 	
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(model_.parameters(), 1)
-                optimizer.step()
+                #torch.nn.utils.clip_grad_norm_(model_.parameters(), 1)
+
+                ###attack
+                '''
+                fgm.attack()
+                y_pred ,loss_atk = model_(data_, mode='train')
+                loss_atk.backward()
+                fgm.restore()
+                '''
+                ###
+                ###Gradient Accumulative
+                if (i+1) % self.accumulative == 0:
+                    torch.nn.utils.clip_grad_norm_(model_.parameters(), 1)
+                    
+                    optimizer.step()
+                    scheduler.step()
+                    optimizer.zero_grad()
 
             self.hist['Epoch'] = epoch+1
             self.hist['time'] = time.time()-start
             self.hist['train_loss'] = train_loss/N_train	
-            #self.hist['train_acc'] = train_acc/N_train
+            self.hist['train_acc'] = train_acc/N_train
 
             torch.save(model_.state_dict(), self.save+self.model_name)
 			
@@ -156,13 +183,20 @@ class handler(hyperparameter):
                 valid_true, valid_pred, valid_loss = self.test(model_, valid_loader, mode='valid', model_name=self.save+self.model_name)
 
                 es(valid_loss, model_, self.save+self.model_name)
-				
-            self.print_hist()
+	
+                '''###
+                self.test(model_, test_loader, mode='valid', model_name=self.save+self.model_name)
+		###
+                '''
 
-            if es.early_stop:	
-                print('Early stopping')
-                break
-				
+                self.print_hist()
+
+                if es.early_stop:	
+                    print('Early stopping')
+                    break
+            else:
+                self.print_hist()
+
     def test( self, model_, test_loader, mode='test', model_name='checkpoint.pt' ):
         model_.load_state_dict(torch.load(model_name))
         model_.to(self.device)
@@ -184,7 +218,7 @@ class handler(hyperparameter):
                 N_test += len(data_[0])
 
         self.hist['val_loss'] = test_loss/N_test
-        #self.hist['val_acc'] = test_acc/N_test
+        self.hist['val_acc'] = test_acc/N_test
 		
         return y_true , y_pred, test_loss/N_test
 

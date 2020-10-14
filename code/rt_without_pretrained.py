@@ -1,9 +1,7 @@
-import language_model as LM
 import numpy as np
-import training_handler as trainer
 import torch
-import tokenizer
-from tokenizer import FullTokenizer
+from pipeline.training_handler import handler
+from pipeline.tokenizer import FullTokenizer
 from sklearn.model_selection import train_test_split
 
 def load_data( lst ):
@@ -56,18 +54,21 @@ class rt:
         return (train_x, torch.LongTensor(train_y)), (dev_x, torch.LongTensor(dev_y)), (test_x, torch.LongTensor(test_y))
     
 if __name__ == '__main__':
-    handler = trainer.handler()
+    rt = rt()
+    handler = handler()
 
-    training, valid, testing = rt().simple_data()
+    training, valid, testing = rt.simple_data()
     train_loader = handler.torch_data(training)
     valid_loader = handler.torch_data(valid)
     test_loader = handler.torch_data(testing)
    
-    import model
+    from pipeline import model
+    #import attention
     trial = handler.trial
     scores = []
     for i in range(trial):
-        model_ = model.EmbCNN(dim=300)
+        #model_ = attention.attention(emb=64, n_head=8)
+        model_ = model.EmbCNN(dim=768)
         model_name = 'model_'+str(i)+'.pt'
         handler.setting(model_, model_name=model_name)
         handler.fit(train_loader, valid_loader)

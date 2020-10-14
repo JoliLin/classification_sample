@@ -3,6 +3,12 @@
 + python 3.x
 + simple CNN
 + fine-tuning BERT
++ fine-tuning BERT with adapter(Parameter-Efficient Transfer Learning for NLP) 
+
+Reference
+----
++ huggingface
++ [Parameter-Effieient Transfer Learning for NLP](https://arxiv.org/pdf/1902.00751.pdf)
 
 Device
 ----
@@ -15,11 +21,22 @@ Requirement
 + transformers
 + sklearn
 
+Training Detail
+----
++ AdamW + warmup + gradient accumulation
+
 Recommended setting and command
 ----
 ```
-python rt_bert.py --lr 2e-5 -trainable 9
+python rt_bert.py --epoch 20 --trainable 3 --lr 1e-4 --batch 16 --accumulative 4 --trial 10
 ```
+
+Compare
+----
+|					|exection time		|nums of params(9 layers)	|
+|----				|----				|----						|
+|Bert(huggingface)	|128s/epoch			|63792386					|	
+|Bert with Adapter	|106s/epoch			|806914						|
 
 Notice
 ----

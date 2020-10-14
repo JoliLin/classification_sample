@@ -12,7 +12,7 @@ class hyperparameter:
         self.lr = self.parser.lr
         self.patience = self.parser.patience
         self.seq_len = self.parser.length
-
+        self.accumulative = self.parser.accumulative
         ###Experiment
         self.trial = self.parser.trial
         self.save = self.create_saving_dir(self.parser.save)
@@ -26,14 +26,14 @@ class hyperparameter:
         parser.add_argument('--epoch', '-e', default=300, type=int)
         parser.add_argument('--batch', '-b', default=64, help='batch size', type=int)
         parser.add_argument('--lr', '-lr', default=3e-4, help='learning rate', type=float)
-        parser.add_argument('--patience', '-p', default=10, help='patience for learning rate', type=int)	
+        parser.add_argument('--patience', '-p', default=7, help='patience for learning rate', type=int)	
         parser.add_argument('--length', '-l', default=300, help='sequence length', type=int)
 
         parser.add_argument('--trial', '-t', default=1, help='times of trial', type=int)	
-        parser.add_argument('--save', '-s', default='./__model__/', help='path of saving model')
+        parser.add_argument('--save', '-s', default='../__model__/', help='path of saving model')
 
         parser.add_argument('--trainable', '-trainable', default=9, help='number of BERT trainable layers', type=int)	
-
+        parser.add_argument('--accumulative', '-accumulative', default=2, help='gradient accumulative', type=int)
         return parser.parse_args()
 
     def device_setting(self, gpu=1):

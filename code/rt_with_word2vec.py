@@ -1,11 +1,9 @@
-import language_model as LM
-import nltk
 import numpy as np
-import training_handler as trainer
 import torch
-import tokenizer
-from tokenizer import FullTokenizer
 from sklearn.model_selection import train_test_split
+from pipeline import language_model as LM
+from pipe.training_handler import handler
+from pipeline.tokenizer import FullTokenizer
 
 def load_data( lst ):
     x, y = [], []
@@ -52,14 +50,15 @@ class rt:
         return (train_x, torch.LongTensor(train_y)), (dev_x, torch.LongTensor(dev_y)), (test_x, torch.LongTensor(test_y))
 
 if __name__ == '__main__':
-    handler = trainer.handler()
+    rt = rt()
+    handler = handler()
 
     training, valid, testing = rt().simple_data()
     train_loader = handler.torch_data(training)
     valid_loader = handler.torch_data(valid)
     test_loader = handler.torch_data(testing)
    
-    import model
+    from pipeline import model
     trial = handler.trial
     scores = []
     for i in range(trial):
