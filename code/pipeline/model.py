@@ -2,11 +2,8 @@ import cupy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.checkpoint import checkpoint
-from transformers import BertForMaskedLM
 
 from .CustomLoss import FocalLoss as focal
-from .GELU import GELU
 
 def rename(weight):
     old_keys = []
@@ -29,7 +26,7 @@ class mCNN(nn.Module):
     def __init__(self, dim=300, seq_len=300, hidden=64, classes=2):
         super(mCNN, self).__init__()
         self.loss_func = focal()
-        self.activation = GELU()
+        self.activation = ReLU()
 
         self.enc_size = [hidden]*(5+1)
         self.blocks = nn.ModuleList([self.linear_block(in_f, out_f) for in_f, out_f in zip(self.enc_size, self.enc_size[1:]) ])
