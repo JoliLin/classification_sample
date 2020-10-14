@@ -18,14 +18,10 @@ import math
 import os
 import json
 import tarfile
-#import tempfile
-#import shutil
-#from urllib.parse import urlparse
 from .file_utils import cached_path
 
 import torch
 from torch import nn
-from .bert_util import find_pruneable_heads_and_indices, prune_linear_layer
 
 def create_saving_dir(save):
     if not save.endswith('/'):
