@@ -28,7 +28,7 @@ Training Detail
 Recommended setting and command
 ----
 ```
-python rt_bert.py --epoch 20 --trainable 3 --lr 1e-4 --batch 16 --accumulative 4 --trial 10
+python rt_bert.py --epoch 20 --trainable 3 --lr 1e-4 --batch 16 --accumulative 4
 ```
 
 Compare
