@@ -1,4 +1,3 @@
-import nltk
 import numpy as np
 import torch
 from transformers import BertTokenizer#, BertModel
